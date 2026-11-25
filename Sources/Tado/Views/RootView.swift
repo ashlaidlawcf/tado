@@ -20,7 +20,7 @@ struct RootView: View {
             .transition(.blurReplace)
 
             if let error = model.errorMessage {
-                ErrorBanner(message: error)
+                ErrorBanner(message: error) { model.errorMessage = nil }
             }
 
             FooterBar()
@@ -72,16 +72,35 @@ private struct FooterBar: View {
 
 private struct ErrorBanner: View {
     let message: String
+    let dismiss: () -> Void
 
     var body: some View {
-        Label(message, systemImage: "exclamationmark.triangle.fill")
-            .font(.callout)
-            .symbolRenderingMode(.multicolor)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular.tint(.red.opacity(0.25)), in: .rect(cornerRadius: 14))
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.multicolor)
+            Text(message)
+                .fixedSize(horizontal: false, vertical: true)   // wrap instead of truncating
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .help("Copy error")
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+            }
+            .help("Dismiss")
+        }
+        .buttonStyle(.borderless)
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.tint(.red.opacity(0.25)), in: .rect(cornerRadius: 14))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 

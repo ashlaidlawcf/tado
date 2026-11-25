@@ -195,8 +195,13 @@ struct ZoneCard: View {
 
     private var statusText: String {
         guard let state else { return "Loading…" }
-        if !isOn { return state.hasOverlay ? "Off · manual" : "Off" }
-        let mode = state.hasOverlay ? "Manual until next change" : "Following schedule"
+        let mode = switch state.overlayEnds {
+        case .nextScheduleChange: "Manual until next schedule change"
+        case .timer: "Manual (timer)"
+        case .manual: "Manual until you change it"
+        case nil: "Following schedule"
+        }
+        if !isOn { return state.hasOverlay ? "Off · \(mode)" : "Off" }
         return isHeating ? "Heating \(Int(heatingPower))% · \(mode)" : mode
     }
 

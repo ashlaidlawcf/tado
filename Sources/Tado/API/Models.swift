@@ -10,6 +10,15 @@ struct HomeRef: Decodable, Sendable, Identifiable, Hashable {
     let name: String
 }
 
+struct HomeDetail: Decodable, Sendable {
+    let id: Int
+    let name: String
+    /// "PRE_LINE_X" for V3/V3+ homes, "LINE_X" for tado X.
+    let generation: String?
+
+    var isTadoX: Bool { generation == "LINE_X" }
+}
+
 enum ZoneType: String, Codable, Sendable {
     case heating = "HEATING"
     case hotWater = "HOT_WATER"
@@ -41,10 +50,32 @@ struct ZoneStatesResponse: Decodable, Sendable {
 struct ZoneState: Decodable, Sendable, Hashable {
     let setting: ZoneSetting
     let overlayType: String?   // "MANUAL" when a manual override is active
+    let overlay: Overlay?
     let sensorDataPoints: SensorData?
     let activityDataPoints: ActivityData?
 
     var hasOverlay: Bool { overlayType != nil }
+
+    /// How the current manual override ends, if there is one.
+    var overlayEnds: OverlayEnd? {
+        guard hasOverlay else { return nil }
+        switch overlay?.termination.flatMap({ $0.typeSkillBasedApp ?? $0.type }) {
+        case "NEXT_TIME_BLOCK", "TADO_MODE": return .nextScheduleChange
+        case "TIMER": return .timer
+        default: return .manual
+        }
+    }
+
+    enum OverlayEnd { case manual, nextScheduleChange, timer }
+
+    struct Overlay: Decodable, Sendable, Hashable {
+        let termination: Termination?
+        struct Termination: Decodable, Sendable, Hashable {
+            let type: String?
+            let typeSkillBasedApp: String?
+        }
+    }
+
     var insideTemperature: Double? { sensorDataPoints?.insideTemperature?.celsius }
     var humidity: Double? { sensorDataPoints?.humidity?.percentage }
     var heatingPower: Double? { activityDataPoints?.heatingPower?.percentage }

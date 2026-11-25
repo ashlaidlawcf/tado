@@ -113,6 +113,9 @@ final class AppModel {
         defer { isRefreshing = false }
         do {
             if zones.isEmpty {
+                let detail = try await client.home(home)
+                apiLog.info("Home \(home) generation: \(detail.generation ?? "unknown", privacy: .public)")
+                guard !detail.isTadoX else { throw TadoAPIError.tadoXUnsupported }
                 zones = try await client.zones(home: home)
             }
             states = try await client.zoneStates(home: home)
@@ -124,11 +127,11 @@ final class AppModel {
     }
 
     func setTemperature(_ celsius: Double, for zone: Zone) async {
-        await mutate { try await $0.setOverlay(home: $1, zone: zone, celsius: celsius, termination: .nextTimeBlock) }
+        await mutate { try await $0.setOverlayUntilNextChange(home: $1, zone: zone, celsius: celsius) }
     }
 
     func turnOff(_ zone: Zone) async {
-        await mutate { try await $0.setOverlay(home: $1, zone: zone, celsius: nil, termination: .nextTimeBlock) }
+        await mutate { try await $0.setOverlayUntilNextChange(home: $1, zone: zone, celsius: nil) }
     }
 
     func resumeSchedule(_ zone: Zone) async {

@@ -1,14 +1,36 @@
 import Foundation
+import os
+
+let apiLog = Logger(subsystem: "local.tado.client", category: "api")
 
 enum TadoAPIError: LocalizedError {
     case http(Int, String)
     case rateLimited
+    case tadoXUnsupported
 
     var errorDescription: String? {
         switch self {
-        case .http(let code, let body): "tado API error \(code): \(body.prefix(200))"
-        case .rateLimited: "tado's daily API limit was reached. Try again later."
+        case .http(let code, let body):
+            // tado errors look like {"errors":[{"code":"…","title":"…"}]}
+            struct Envelope: Decodable { struct Item: Decodable { let code: String?; let title: String? }; let errors: [Item] }
+            if let envelope = try? JSONDecoder().decode(Envelope.self, from: Data(body.utf8)),
+               let first = envelope.errors.first {
+                let parts = [first.code, first.title].compactMap { $0 }
+                return "tado rejected the request (HTTP \(code)): \(parts.joined(separator: " – "))"
+            }
+            return "tado API error \(code): \(body.prefix(300))"
+        case .rateLimited:
+            return "tado's daily API limit was reached. Try again later."
+        case .tadoXUnsupported:
+            return "This home uses tado X, which this app can't control yet."
         }
+    }
+
+    /// tado's machine-readable error code, e.g. "unsupportedOverlayTerminationType".
+    var tadoCode: String? {
+        guard case .http(_, let body) = self else { return nil }
+        struct Envelope: Decodable { struct Item: Decodable { let code: String? }; let errors: [Item] }
+        return (try? JSONDecoder().decode(Envelope.self, from: Data(body.utf8)))?.errors.first?.code
     }
 }
 
@@ -22,6 +44,10 @@ struct TadoClient: Sendable {
         try await get("me")
     }
 
+    func home(_ id: Int) async throws -> HomeDetail {
+        try await get("homes/\(id)")
+    }
+
     func zones(home: Int) async throws -> [Zone] {
         try await get("homes/\(home)/zones")
     }
@@ -31,6 +57,16 @@ struct TadoClient: Sendable {
         return Dictionary(uniqueKeysWithValues: response.zoneStates.compactMap { key, value in
             Int(key).map { ($0, value) }
         })
+    }
+
+    /// Sets an override that ends at the next schedule change, or stays until changed
+    /// if the zone has no upcoming schedule block (tado rejects NEXT_TIME_BLOCK then).
+    func setOverlayUntilNextChange(home: Int, zone: Zone, celsius: Double?) async throws {
+        do {
+            try await setOverlay(home: home, zone: zone, celsius: celsius, termination: .nextTimeBlock)
+        } catch let error as TadoAPIError where error.tadoCode == "unsupportedOverlayTerminationType" {
+            try await setOverlay(home: home, zone: zone, celsius: celsius, termination: .manual)
+        }
     }
 
     /// Sets a manual override (temperature or off) on a zone.
@@ -75,7 +111,13 @@ struct TadoClient: Sendable {
         case 429:
             throw TadoAPIError.rateLimited
         default:
-            throw TadoAPIError.http(status, String(decoding: data, as: UTF8.self))
+            let responseBody = String(decoding: data, as: UTF8.self)
+            let requestBody = body.map { String(decoding: $0, as: UTF8.self) } ?? "-"
+            apiLog.error("""
+                \(method, privacy: .public) \(path, privacy: .public) -> HTTP \(status) \
+                request=\(requestBody, privacy: .public) response=\(responseBody, privacy: .public)
+                """)
+            throw TadoAPIError.http(status, responseBody)
         }
     }
 }
